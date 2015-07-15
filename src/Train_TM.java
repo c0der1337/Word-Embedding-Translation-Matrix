@@ -25,19 +25,20 @@ import static org.nd4j.linalg.ops.transforms.Transforms.*;
 public class Train_TM {
 	//static String data_path = "C://Users//Patrick//Documents//master arbeit//original_code//data//Wordnet//";
 	//Data
-	static String trainData_path = "C://Users//Patrick//Documents//master arbeit//Translation Matrix//data//";
-	static String we_Src_file = "EN.200K.cbow1_wind5_hs0_neg10_size300_smpl1e-05.txt";
-	static String we_Tar_file = "IT.200K.cbow1_wind5_hs0_neg10_size300_smpl1e-05.txt";
-	static String trn_data_file = "OPUS_en_it_europarl_train_5K.txt";
-	static String test_data_file = "OPUS_en_it_europarl_test.txt";
+	static String trainData_path;
+	static String we_Src_file;
+	static String we_Tar_file;
+	static String trn_data_file;
+	static String test_data_file;
 	
-	static private int we_dimension = 300; // dimension of word embeddings
-	static private int we_vocabsize = 50000; // number of words
+	static private int we_dimension; // dimension of word embeddings
+	static private int we_vocabsize; // number of words
 	
 	//
-	static boolean train_or_load_tm = true; //true = train, load = false
+	static boolean train_or_load_tm = true; //true = train , load = false
+	static String load_tm_filename;
 	static boolean reduce_target_space = true;
-	static int target_space_reduction_to = 50000;
+	static int target_space_reduction_to;
 	
 	//Training data:
 	private static ArrayList<TrainingPair> trainingDataSrcTar = new ArrayList();
@@ -78,6 +79,9 @@ public class Train_TM {
 			test_data_file = args[5];
 			we_dimension = Integer.parseInt(args[6]);
 			we_vocabsize = Integer.parseInt(args[7]);
+			train_or_load_tm = Boolean.parseBoolean(args[8]);
+			load_tm_filename = (args[9]);
+			target_space_reduction_to = Integer.parseInt(args[10]);
 		} catch (Exception e) {
 			trainData_path = "C://Users//Patrick//Documents//master arbeit//Translation Matrix//data//";
 			we_Src_file = "EN.200K.cbow1_wind5_hs0_neg10_size300_smpl1e-05.txt";
@@ -85,7 +89,11 @@ public class Train_TM {
 			trn_data_file = "OPUS_en_it_europarl_train_5K.txt";
 			test_data_file = "OPUS_en_it_europarl_test.txt";
 			we_dimension = 300; // dimension of word embeddings
-			we_vocabsize = 200000; // number of words
+			we_vocabsize = 200000; // number of words 
+			train_or_load_tm = false;
+			load_tm_filename = "translationmatrix.txt";
+			target_space_reduction_to = 50000; // number of words loaded into the target space
+			
 		}
 		//Initialize translation matrix
 		INDArray tm= Nd4j.create(we_dimension,we_dimension);;
@@ -95,7 +103,7 @@ public class Train_TM {
 			tm = train();
 		}else{
 			//Load translation matrix
-			tm = Nd4j.readTxt(trainData_path+"//translationmatrix.txt", ",");
+			tm = Nd4j.readTxt(trainData_path+"//"+load_tm_filename, ",");
 		}
 		
 		//Test
@@ -435,7 +443,7 @@ public class Train_TM {
 			e.printStackTrace();
 		}
 		
-		System.out.println("Training data loaded. Source-Target Training Pairs: "+trainingDataSrcTar.size()+" Size of Source Matrix: "+testWordVectorMaxtrixLoaded_Source.columns()+" | " + testWordVectorMaxtrixLoaded_Source.rows()+" Size of Target Matrix: "+testWordVectorMaxtrixLoaded_Tar.columns()+" | " + testWordVectorMaxtrixLoaded_Tar.rows());
+		System.out.println("Test data loaded. Source-Target Training Pairs: "+testDataSrcTar.size()+" Size of Source Matrix: "+testWordVectorMaxtrixLoaded_Source.rows()+" | " + testWordVectorMaxtrixLoaded_Source.columns()+" Size of Target Matrix: "+testWordVectorMaxtrixLoaded_Tar.rows()+" | " + testWordVectorMaxtrixLoaded_Tar.columns());
 		
 		//Normalize both spaces:
 		testWordVectorMaxtrixLoaded_Source = normalizeWordVectorsSpace(testWordVectorMaxtrixLoaded_Source);
@@ -443,8 +451,6 @@ public class Train_TM {
 		
 		//Applying the translation matrix on the source word embeddings in order to map/transform the source vectors into the target vector space
 		INDArray mapped_source_sp  = testWordVectorMaxtrixLoaded_Source.mmul(tm);
-		
-		
 		
 		//Retrieving translations
 		
@@ -454,6 +460,12 @@ public class Train_TM {
 		// Computing cosines to see which vectors of the target space are most similar / nearest to the source vectors
 		INDArray sim_mat = testWordVectorMaxtrixLoaded_Tar.neg().mmul(mapped_source_sp.transpose());
 		//Nd4j.writeTxt( tm, trainData_path+"//sim_mat_"+sim_mat.shape()[0]+"|"+sim_mat.shape()[1]+".txt", ",");
+		
+		//ND4j Bug: sim_mat does not give the correct score
+		INDArray sim_mat2 = Nd4j.create(sim_mat.rows(),sim_mat.columns());
+		for (int i = 0; i < sim_mat2.linearView().length(); i++) {
+			sim_mat2.linearView().putScalar(i, sim_mat.linearView().getDouble(i));
+		}
 		
 		// Sorting target space elements to get the most similar at top
 		INDArray srtd_idx = Nd4j.sortWithIndices(sim_mat, 0, true)[0];
@@ -479,8 +491,8 @@ public class Train_TM {
 				// Retrieve translation / word from the target space
 				String translation = testVocabNumWord_Tar.get(target_idx);
 				// Retrieve Score of simililarity
-				double score = sim_mat.neg().getDouble((int)target_idx,source_idx);
-				System.out.println(k+". translation: "+translation + " score: "+score);
+				double score = sim_mat2.neg().getDouble((int)target_idx,source_idx);
+				System.out.println(k+". "+translation + ": "+score);
 				
 				// Accuracy evaluation: is this translation correct?
 				for (int j = 0; j < testDataSrcTar.get(i).getTargets().size(); j++) {
